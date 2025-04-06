@@ -5,30 +5,70 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Download the Big Buck Bunny video if it doesn't exist
-if [ ! -f dev/bbb.fmp4 ]; then
-	if [ ! -f dev/bbb.mp4 ]; then
-		echo "Downloading ya boye Big Buck Bunny..."
-		wget http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4 -O dev/bbb.mp4
-	fi
+# if [ ! -f dev/bbb.fmp4 ]; then
+# 	if [ ! -f dev/bbb.mp4 ]; then
+# 		echo "Downloading ya boye Big Buck Bunny..."
+# 		wget http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4 -O dev/bbb.mp4
+# 	fi
 
-	echo "Converting to a (properly) fragmented MP4..."
-	ffmpeg -i dev/bbb.mp4 \
-		-c copy \
-		-f mp4 -movflags cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame \
-		dev/bbb.fmp4
-fi
+# 	echo "Converting to a (properly) fragmented MP4..."
+# 	ffmpeg -i dev/bbb.mp4 \
+# 		-c copy \
+# 		-f mp4 -movflags cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame \
+# 		dev/bbb.fmp4
+# fi
+
+# add from moq-vs-dash
+ACODEC=aac
+VCODEC=libx264
+COLOR=bt709
+FPS=50
+
+video_size="1280x720"
+# Testsrc
+INPUT="-f lavfi -re -i testsrc=s=$video_size:r=$FPS"
+
+PUT_TIMESTAMP="${put_timestamp:-0}"
+FONT_PATH="${font_path:-/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf}"
+# timestamp format: T -> time N->millisecond
+# use millisecond with caution, it may not work all the time!
+TS_FORMAT="${ts_format:-%T.%3N}"
+# construct video filter
+VIDEO_FILTER="drawtext=fontfile='$FONT_PATH':fontsize=32:box=1:boxborderw=4:boxcolor=black@0.6:fontcolor=white:x=32:y=H-32:text='T0\: %{localtime\:$TS_FORMAT}'[time];"
+
+res_0="640x360"
+res_1="768x432"
+res_2="960x540"
+res_3="1280x720"
+
+bitrate_0="360000"
+bitrate_1="1100000"
+bitrate_2="2000000"
+bitrate_3="3000000"
+
+bufsize_0="720K"
+bufsize_1="2.2M"
+bufsize_2="4M"
+bufsize_3="6M"
+
+bitrates="${bitrate_0},${bitrate_1},${bitrate_2},${bitrate_3}"
+
+#gop_size=30
+gop_size=$FPS
 
 # Use debug logging by default
 export RUST_LOG="${RUST_LOG:-debug}"
 
 # Connect to localhost by default.
+#HOST="${HOST:-moq-test.logic-services.de}"
 HOST="${HOST:-localhost}"
 PORT="${PORT:-4443}"
 ADDR="${ADDR:-$HOST:$PORT}"
 SCHEME="${SCHEME:-https}"
 
 # Use the name "bbb" for the broadcast.
-NAME="${NAME:-bbb}"
+# NAME="${NAME:-bbb}"
+NAME="${NAME:-dev}"
 
 # Combine the host into a URL.
 URL="${URL:-"$SCHEME://$ADDR"}"
@@ -40,9 +80,22 @@ INPUT="${INPUT:-dev/bbb.fmp4}"
 echo "Watch URL: https://quic.video/watch/$NAME?server=$ADDR"
 
 # Run ffmpeg and pipe the output to moq-pub
-ffmpeg -hide_banner -v quiet \
-	-stream_loop -1 -re \
-	-i "$INPUT" \
-	-c copy \
-	-f mp4 -movflags cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame \
-	- | cargo run --bin moq-pub -- --name "$NAME" "$URL" "$@"
+
+# Run ffmpeg from moq-vs-dash
+ffmpeg -hide_banner -probesize 10M $INPUT -an -fflags nobuffer \
+		-f mp4 -c $VCODEC -movflags cmaf+separate_moof+delay_moov+skip_trailer -x264-params "nal-hrd=cbr" \
+		-map 0 \
+		-s:v:0 ${res_3} -b:v:0 ${bitrate_3} -minrate ${bitrate_3} -maxrate ${bitrate_3} -bufsize ${bufsize_3} \
+		-write_prft wallclock \
+		-vf "$VIDEO_FILTER" \
+		-g:v $gop_size -keyint_min:v $gop_size -sc_threshold:v 0 -streaming 1 -tune zerolatency \
+		-color_primaries ${COLOR} -color_trc ${COLOR} -colorspace ${COLOR} \
+		-frag_type duration -frag_duration 1 - | \
+		tee >(ffplay -) | cargo run --bin moq-pub -- --name "$NAME" "$URL" "$@"
+
+'''
+-map 0 as often needed as streams
+-s:v:1 ${res_1} -b:v:1 ${bitrate_1} -minrate ${bitrate_1} -maxrate ${bitrate_1} -bufsize ${bufsize_1} \
+		-s:v:2 ${res_2} -b:v:2 ${bitrate_2} -minrate ${bitrate_2} -maxrate ${bitrate_2} -bufsize ${bufsize_2} \
+		-s:v:3 ${res_3} -b:v:3 ${bitrate_3} -minrate ${bitrate_3} -maxrate ${bitrate_3} -bufsize ${bufsize_3} \
+		'''
