@@ -26,7 +26,8 @@ FPS=50
 
 video_size="1280x720"
 # Testsrc
-INPUT="-f lavfi -re -i testsrc=s=$video_size:r=$FPS"
+#INPUT="-f lavfi -re -i testsrc=s=$video_size:r=$FPS"
+INPUT="-f lavfi -i smptehdbars=rate=$FPS:size=$video_size -f lavfi -i sine=frequency=1000:sample_rate=48000"
 
 PUT_TIMESTAMP="${put_timestamp:-0}"
 FONT_PATH="${font_path:-/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf}"
@@ -34,7 +35,7 @@ FONT_PATH="${font_path:-/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf}"
 # use millisecond with caution, it may not work all the time!
 TS_FORMAT="${ts_format:-%T.%3N}"
 # construct video filter
-VIDEO_FILTER="drawtext=fontfile='$FONT_PATH':fontsize=32:box=1:boxborderw=4:boxcolor=black@0.6:fontcolor=white:x=32:y=H-32:text='T0\: %{localtime\:$TS_FORMAT}'[time];"
+VIDEO_FILTER="drawtext=fontfile='$FONT_PATH':fontsize=80:box=1:boxborderw=4:boxcolor=black@0.6:fontcolor=white:x=32:y=H-80:text='T0\: %{localtime\:$TS_FORMAT}'[time];"
 
 res_0="640x360"
 res_1="768x432"
@@ -83,15 +84,15 @@ echo "Watch URL: https://quic.video/watch/$NAME?server=$ADDR"
 
 # Run ffmpeg from moq-vs-dash
 ffmpeg -hide_banner -probesize 10M $INPUT -an -fflags nobuffer \
-		-f mp4 -c $VCODEC -movflags cmaf+separate_moof+delay_moov+skip_trailer -x264-params "nal-hrd=cbr" \
-		-map 0 \
+		-f mp4 -c:v $VCODEC -c:a $ACODEC -movflags cmaf+separate_moof+delay_moov+skip_trailer -x264-params "nal-hrd=cbr" \
+		-map 0:v -map 1:a \
 		-s:v:0 ${res_3} -b:v:0 ${bitrate_3} -minrate ${bitrate_3} -maxrate ${bitrate_3} -bufsize ${bufsize_3} \
 		-write_prft wallclock \
 		-vf "$VIDEO_FILTER" \
 		-g:v $gop_size -keyint_min:v $gop_size -sc_threshold:v 0 -streaming 1 -tune zerolatency \
 		-color_primaries ${COLOR} -color_trc ${COLOR} -colorspace ${COLOR} \
 		-frag_type duration -frag_duration 1 - | \
-		tee >(ffplay -) | cargo run --bin moq-pub -- --tls-disable-verify --name "$NAME" "$URL" "$@"
+		tee >(ffplay -) #| cargo run --bin moq-pub -- --tls-disable-verify --name "$NAME" "$URL" "$@"
 
 '''
 -map 0 as often needed as streams
