@@ -92,7 +92,7 @@ ffmpeg -hide_banner -probesize 10M $INPUT -an -fflags nobuffer \
 		-g:v $gop_size -keyint_min:v $gop_size -sc_threshold:v 0 -streaming 1 -tune zerolatency \
 		-color_primaries ${COLOR} -color_trc ${COLOR} -colorspace ${COLOR} \
 		-frag_type duration -frag_duration 1 - | \
-		tee >(ffplay -) #| cargo run --bin moq-pub -- --tls-disable-verify --name "$NAME" "$URL" "$@"
+		tee >(ffplay -) | cargo run --bin moq-pub -- --tls-disable-verify --name "$NAME" "$URL" "$@"
 
 '''
 -map 0 as often needed as streams
